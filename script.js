@@ -10,7 +10,8 @@ const SUPABASE_KEY = "sb_publishable_LhVIzaXVL10gVCGQmXQzYg_8C1s60Zp";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const MAX_FILES = 10;
-const MAX_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE = 20 * 1024 * 1024;      // 20 MB bawat file
+const QUOTA = 100 * 1024 * 1024;        // 100 MB bawat user
 
 // ---------- 2. STATE ----------
 const viewUsername = new URLSearchParams(location.search).get("u"); // ?u=username
@@ -24,6 +25,8 @@ let filter = "all";
 let selected = null;
 let newIds = new Set(); // mga bagong upload (para sa glow animation)
 let view = store("jennifer-view") || "grid";
+let sortBy = store("jennifer-sort") || "new";
+let visible = [];        // mga file na kasalukuyang nakikita (para sa next/previous)
 
 const $ = id => document.getElementById(id);
 
@@ -105,6 +108,7 @@ const ICON = {
   sun:     '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon:    '<svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   x:       '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  star:    '<svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>',
   check:   '<svg class="check" viewBox="0 0 26 26"><circle cx="13" cy="13" r="10"/><path d="M8.5 13.5l3 3 6-6.5"/></svg>'
 };
 
@@ -427,6 +431,7 @@ function buildNav() {
   if (mode === "mine") {
     html += navItem("public", ICON.public, "Public", count(f => f.is_public));
     html += navItem("private", ICON.private, "Private", count(f => !f.is_public));
+    html += navItem("starred", ICON.star, "Starred", count(f => f.is_starred));
   }
   if (categories().length) {
     html += `<p class="nav-label">Categories</p>`;
@@ -436,6 +441,28 @@ function buildNav() {
   $("nav").querySelectorAll(".nav-item").forEach(btn => {
     btn.onclick = () => { filter = btn.dataset.key; buildNav(); render(); };
   });
+  buildStorage();
+}
+
+// =====================================================
+//  13b. STORAGE METER
+// =====================================================
+function usedBytes() {
+  return FILES.reduce((sum, f) => sum + (Number(f.size_bytes) || 0), 0);
+}
+
+function buildStorage() {
+  const box = $("storage");
+  box.hidden = mode !== "mine";
+  if (mode !== "mine") return;
+  const used = usedBytes();
+  const pct = Math.min(100, (used / QUOTA) * 100);
+  box.className = "storage" + (pct >= 95 ? " full" : pct >= 80 ? " warn" : "");
+  box.innerHTML = `
+    <div class="storage-top"><span>Storage</span><b>${formatSize(used)} / ${formatSize(QUOTA)}</b></div>
+    <div class="storage-bar"><i></i></div>
+    <small>${pct >= 95 ? "Almost full. Delete files to free up space." : `${Math.max(0, 100 - pct).toFixed(0)}% free`}</small>`;
+  requestAnimationFrame(() => (box.querySelector("i").style.width = Math.max(pct, used ? 2 : 0) + "%"));
 }
 
 // User card sa ibaba. Hindi na ito ginagawa ulit kung walang nagbago,
@@ -467,7 +494,9 @@ function buildUserCard() {
         <a class="btn primary block" href="${location.pathname}">${ICON.login} Sign in or create account</a>
       </div>`;
   }
+}
 
+function copyProfileLink() {
   const name = mode === "public" && owner ? owner.username : me?.username;
   const link = `${location.origin}${location.pathname}?u=${name}`;
   navigator.clipboard.writeText(link)
@@ -512,11 +541,22 @@ function render() {
   const list = FILES.filter(f => {
     if (filter === "public" && !f.is_public) return false;
     if (filter === "private" && f.is_public) return false;
+    if (filter === "starred" && !f.is_starred) return false;
     if (filter.startsWith("cat:") && f.category !== filter.slice(4)) return false;
     return `${f.title} ${f.note || ""} ${f.category}`.toLowerCase().includes(q);
   });
 
-  const titles = { all: "All files", public: "Public files", private: "Private files" };
+  // Pagkakasunod: naka-star muna (sa sariling library), saka ayon sa Sort
+  const sorters = {
+    new: (a, b) => b.created_at.localeCompare(a.created_at),
+    old: (a, b) => a.created_at.localeCompare(b.created_at),
+    name: (a, b) => a.title.localeCompare(b.title),
+    size: (a, b) => (b.size_bytes || 0) - (a.size_bytes || 0)
+  };
+  list.sort((a, b) => (mode === "mine" ? (b.is_starred ? 1 : 0) - (a.is_starred ? 1 : 0) : 0) || sorters[sortBy](a, b));
+  visible = list;
+
+  const titles = { all: "All files", public: "Public files", private: "Private files", starred: "Starred" };
   if (owner || mode === "mine") $("page-title").textContent = titles[filter] || filter.slice(4);
 
   $("empty").hidden = list.length > 0;
@@ -542,10 +582,13 @@ function render() {
       : `<div class="file-icon" style="--c:${T.color}"><b>${T.label}</b></div>`;
     const date = new Date(f.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     const badge = mode === "mine" ? `<span class="badge">${f.is_public ? "🌐 Public" : "🔒 Private"}</span>` : "";
+    const star = mode === "mine"
+      ? `<button class="star-btn ${f.is_starred ? "on" : ""}" data-star="${f.id}" aria-label="${f.is_starred ? "Unstar" : "Star"}">${ICON.star}</button>`
+      : "";
 
     return `
       <article class="card ${newIds.has(f.id) ? "is-new" : ""}" style="animation-delay:${Math.min(i, 12) * 35}ms" data-id="${f.id}">
-        ${view === "grid" ? badge : ""}
+        ${view === "grid" ? badge + star : ""}
         <div class="thumb">${thumb}</div>
         <div class="info">
           <div>
@@ -558,13 +601,46 @@ function render() {
             <time>${date}</time>
           </div>
         </div>
+        ${view === "list" ? star : ""}
       </article>`;
   }).join("");
 
   $("grid").querySelectorAll(".card").forEach(card => {
     card.onclick = () => openPreview(FILES.find(f => f.id === card.dataset.id));
   });
+  $("grid").querySelectorAll("[data-star]").forEach(btn => {
+    btn.onclick = e => { e.stopPropagation(); toggleStar(btn); };
+  });
 }
+
+// ⭐ Star / Unstar
+async function toggleStar(btn) {
+  const f = FILES.find(x => x.id === btn.dataset.star);
+  const next = !f.is_starred;
+  f.is_starred = next;
+  btn.classList.toggle("on", next);
+  btn.classList.remove("pop");
+  void btn.offsetWidth;
+  btn.classList.add("pop");
+  const { error } = await db.from("files").update({ is_starred: next }).eq("id", f.id);
+  if (error) {
+    f.is_starred = !next;
+    btn.classList.toggle("on", !next);
+    toast("Could not update: " + error.message);
+    return;
+  }
+  toast(next ? "Added to Starred ⭐" : "Removed from Starred");
+  buildNav();
+  setTimeout(render, 450);
+}
+
+// Sort
+$("sort").value = sortBy;
+$("sort").onchange = () => {
+  sortBy = $("sort").value;
+  store("jennifer-sort", sortBy);
+  render();
+};
 
 $("search").oninput = render;
 
@@ -590,13 +666,22 @@ document.querySelectorAll(".modal").forEach(m => {
 });
 
 document.addEventListener("keydown", e => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  if (!$("preview").hidden && $("share").hidden && $("edit").hidden) {
+    if (e.key === "ArrowRight") stepPreview(1);
+    if (e.key === "ArrowLeft") stepPreview(-1);
+  }
+  if (e.key === "/" && !typing && !$("view-app").hidden && !document.querySelector(".modal.show")) {
+    e.preventDefault();
+    $("search").focus();
+  }
   if (e.key === "Escape") document.querySelectorAll(".modal.show").forEach(m => m.id !== "recovery" && closeModal(m.id));
 });
 
 // =====================================================
 //  17. PREVIEW
 // =====================================================
-function openPreview(f) {
+function openPreview(f, direction) {
   selected = f;
   const t = getType(f.path);
   const url = URLS[f.path] || "#";
@@ -616,8 +701,82 @@ function openPreview(f) {
   else if (t === "link") $("p-body").innerHTML = `<div class="no-preview">🔗 ${esc(url)}</div>`;
   else $("p-body").innerHTML = `<div class="no-preview">No preview for this file type.<br>Use Open or Download.</div>`;
 
-  openModal("preview");
+  // Next / previous
+  const i = visible.indexOf(f);
+  $("p-prev").disabled = i <= 0;
+  $("p-next").disabled = i < 0 || i >= visible.length - 1;
+  $("p-count").textContent = visible.length > 1 && i >= 0 ? `${i + 1} / ${visible.length}` : "";
+  $("p-count").hidden = !$("p-count").textContent;
+  const body = $("p-body");
+  body.classList.remove("slide-left", "slide-right");
+  if (direction) { void body.offsetWidth; body.classList.add(direction > 0 ? "slide-left" : "slide-right"); }
+
+  if ($("preview").hidden) openModal("preview");
 }
+
+function stepPreview(dir) {
+  const i = visible.indexOf(selected);
+  const next = visible[i + dir];
+  if (next) openPreview(next, dir);
+}
+$("p-prev").onclick = () => stepPreview(-1);
+$("p-next").onclick = () => stepPreview(1);
+
+// Swipe sa phone
+let touchX = null;
+$("p-body").addEventListener("touchstart", e => (touchX = e.touches[0].clientX), { passive: true });
+$("p-body").addEventListener("touchend", e => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX;
+  if (Math.abs(dx) > 60) stepPreview(dx < 0 ? 1 : -1);
+  touchX = null;
+});
+
+// =====================================================
+//  17b. SHARE NG ISANG FILE (link na nag-e-expire)
+// =====================================================
+let shareSeconds = 86400;
+
+$("p-share").onclick = () => {
+  const isLink = selected.path.startsWith("http");
+  $("share-link").value = isLink ? selected.path : "";
+  $("share-msg").textContent = "";
+  $("share-options").hidden = isLink;
+  $("share-create").hidden = isLink;
+  $("share-sub").textContent = isLink
+    ? "This item is a link. Copy it and share it anywhere."
+    : "Anyone with the link can open this file until it expires, even if it's private.";
+  if (isLink) $("share-link").select();
+  openModal("share");
+};
+
+document.querySelectorAll(".share-opt").forEach(btn => {
+  btn.onclick = () => {
+    shareSeconds = +btn.dataset.sec;
+    document.querySelectorAll(".share-opt").forEach(b => b.classList.toggle("active", b === btn));
+    $("share-link").value = "";
+    $("share-msg").textContent = "";
+  };
+});
+
+$("share-create").onclick = async () => {
+  const btn = $("share-create");
+  busy(btn, true);
+  const { data, error } = await db.storage.from("vault").createSignedUrl(selected.path, shareSeconds);
+  busy(btn, false);
+  if (error) { $("share-msg").className = "msg"; $("share-msg").textContent = error.message; return; }
+  $("share-link").value = data.signedUrl;
+  const label = { 3600: "1 hour", 86400: "1 day", 604800: "7 days" }[shareSeconds];
+  try {
+    await navigator.clipboard.writeText(data.signedUrl);
+    $("share-msg").className = "msg ok";
+    $("share-msg").textContent = `Link copied! It works for ${label}.`;
+  } catch (e) {
+    $("share-link").select();
+    $("share-msg").className = "msg ok";
+    $("share-msg").textContent = `Link created. Press Ctrl + C to copy. It works for ${label}.`;
+  }
+};
 
 // Delete: dalawang click para siguradong sinadya
 $("p-delete").onclick = async () => {
@@ -901,6 +1060,11 @@ $("upload-form").onsubmit = async e => {
   const todo = queue.filter(q => q.status === "ready" || q.status === "failed");
 
   if (!category) { $("upload-msg").textContent = "Please enter a category."; $("u-category").focus(); return; }
+  const incoming = todo.reduce((sum, q) => sum + (q.kind === "file" ? q.file.size : 0), 0);
+  if (usedBytes() + incoming > QUOTA) {
+    $("upload-msg").textContent = `Not enough space. You have ${formatSize(Math.max(0, QUOTA - usedBytes()))} left.`;
+    return;
+  }
   if (todo.some(q => !q.title.trim())) { $("upload-msg").textContent = "Every item needs a title."; return; }
   $("upload-msg").textContent = "";
 
@@ -937,6 +1101,7 @@ $("upload-form").onsubmit = async e => {
         note,
         path,
         file_type: item.kind === "file" ? item.file.type : "link",
+        size_bytes: item.kind === "file" ? item.file.size : 0,
         is_public: isPublic
       }).select("id").single();
 
@@ -980,3 +1145,48 @@ $("upload-form").onsubmit = async e => {
     btn.disabled = false;
   }
 };
+
+// =====================================================
+//  21. DRAG KAHIT SAAN SA PAGE
+// =====================================================
+let dragDepth = 0;
+const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
+
+document.addEventListener("dragenter", e => {
+  if (mode !== "mine" || !hasFiles(e) || !$("upload").hidden) return;
+  dragDepth++;
+  $("drop-overlay").hidden = false;
+});
+
+document.addEventListener("dragleave", () => {
+  if ($("drop-overlay").hidden) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) $("drop-overlay").hidden = true;
+});
+
+document.addEventListener("dragover", e => {
+  if (hasFiles(e) && mode === "mine") e.preventDefault();
+});
+
+document.addEventListener("drop", e => {
+  if (!hasFiles(e) || mode !== "mine") return;
+  e.preventDefault();
+  dragDepth = 0;
+  // Kung bukas na ang Upload window, idagdag lang sa listahan
+  if (!$("upload").hidden) {
+    if (!e.target.closest("#drop")) addFiles(e.dataTransfer.files);
+    return;
+  }
+  $("drop-overlay").hidden = true;
+  resetUpload();
+  fillCategoryList();
+  openModal("upload");
+  addFiles(e.dataTransfer.files);
+});
+
+// =====================================================
+//  22. PWA: puwedeng i-install sa phone o computer
+// =====================================================
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}

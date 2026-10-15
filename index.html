@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jennifer · File Organizer</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236366f1'/%3E%3Cstop offset='1' stop-color='%23a855f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='7' fill='url(%23g)'/%3E%3Cpath d='M12.5 5v9.5a4.5 4.5 0 0 1-9 0' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M18 2.5l1.1 2.4 2.4 1.1-2.4 1.1L18 9.5l-1.1-2.4-2.4-1.1 2.4-1.1z' fill='white'/%3E%3C/svg%3E">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#4f46e5">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
@@ -113,6 +116,7 @@
         <span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-j" d="M12.5 5v9.5a4.5 4.5 0 0 1-9 0"/><path class="logo-spark" d="M18 2.5l1.1 2.4 2.4 1.1-2.4 1.1L18 9.5l-1.1-2.4-2.4-1.1 2.4-1.1z"/></svg></span> Jennifer
       </div>
       <nav class="nav" id="nav"></nav>
+      <div class="storage" id="storage" hidden></div>
       <div class="user-card" id="user-card"></div>
     </aside>
 
@@ -129,6 +133,16 @@
           <label class="search">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
             <input id="search" type="search" placeholder="Search files">
+            <kbd>/</kbd>
+          </label>
+          <label class="sort">
+            <svg viewBox="0 0 24 24"><path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3"/></svg>
+            <select id="sort" aria-label="Sort files">
+              <option value="new">Newest</option>
+              <option value="old">Oldest</option>
+              <option value="name">Name A–Z</option>
+              <option value="size">Largest</option>
+            </select>
           </label>
           <div class="segmented" id="view-toggle">
             <button data-view="grid" aria-label="Grid view">
@@ -177,10 +191,16 @@
         </div>
         <button class="icon-btn" data-close aria-label="Close">✕</button>
       </div>
-      <div class="modal-body" id="p-body"></div>
+      <div class="modal-body">
+        <div class="p-content" id="p-body"></div>
+        <button class="nav-arrow prev" id="p-prev" aria-label="Previous file"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button class="nav-arrow next" id="p-next" aria-label="Next file"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <span class="p-count" id="p-count"></span>
+      </div>
       <div class="modal-foot">
         <div class="owner-actions" id="p-owner" hidden>
           <button class="btn ghost" id="p-edit">✏️ Edit</button>
+          <button class="btn ghost" id="p-share">🔗 Share</button>
           <button class="btn danger-ghost" id="p-delete">Delete</button>
         </div>
         <span class="spacer"></span>
@@ -325,6 +345,40 @@
         <button class="btn primary block" type="submit">Update password</button>
       </div>
     </form>
+  </div>
+
+  <!-- Share ng isang file -->
+  <div class="modal" id="share" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <div>
+          <h3>Share this file</h3>
+          <p id="share-sub">Anyone with the link can open it until it expires.</p>
+        </div>
+        <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="form">
+        <div class="share-options" id="share-options">
+          <button type="button" class="share-opt" data-sec="3600"><b>1 hour</b><small>Quick look</small></button>
+          <button type="button" class="share-opt active" data-sec="86400"><b>1 day</b><small>Recommended</small></button>
+          <button type="button" class="share-opt" data-sec="604800"><b>7 days</b><small>Longer access</small></button>
+        </div>
+        <div class="share-result">
+          <input id="share-link" readonly placeholder="Click Create link">
+          <button type="button" class="btn primary" id="share-create">Create link</button>
+        </div>
+        <p class="msg ok" id="share-msg"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lumalabas kapag nag-drag ng file sa page -->
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div class="drop-overlay-box">
+      <span class="drop-icon big"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 20h16"/></svg></span>
+      <b>Drop files to upload</b>
+      <small>Up to 10 files · 20 MB each</small>
+    </div>
   </div>
 
   <!-- Notification -->
