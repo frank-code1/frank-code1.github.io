@@ -8,11 +8,23 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <!-- Ilapat agad ang dark/light mode para walang "flash" -->
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("jennifer-theme"); } catch (e) {}
+      if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
 </head>
 <body>
 
+  <!-- Manipis na loading bar sa pinakaitaas -->
+  <div class="loadbar" id="loadbar"></div>
+
   <!-- =====================================================
-       VIEW 1: SIGN IN / CREATE ACCOUNT
+       VIEW 1: SIGN IN / CREATE ACCOUNT / FORGOT PASSWORD
        ===================================================== -->
   <section class="auth" id="view-auth" hidden>
     <div class="auth-brand">
@@ -32,8 +44,10 @@
     </div>
 
     <div class="auth-panel">
+      <button class="icon-btn theme-btn auth-theme" data-theme-toggle aria-label="Toggle dark mode"></button>
+
       <div class="auth-card">
-        <div class="tabs" role="tablist">
+        <div class="tabs" id="auth-tabs">
           <button class="tab active" data-tab="signin">Sign in</button>
           <button class="tab" data-tab="signup">Create account</button>
           <span class="tab-indicator"></span>
@@ -46,7 +60,10 @@
             <p>Sign in to open your files.</p>
           </div>
           <label>Email <input type="email" id="si-email" autocomplete="email" required></label>
-          <label>Password <input type="password" id="si-password" autocomplete="current-password" required></label>
+          <label>
+            <span class="label-row">Password <button type="button" class="link-btn" id="forgot-open">Forgot password?</button></span>
+            <input type="password" id="si-password" autocomplete="current-password" required>
+          </label>
           <p class="msg" id="si-msg"></p>
           <button class="btn primary block" type="submit">Sign in</button>
         </form>
@@ -69,6 +86,18 @@
           <p class="msg" id="su-msg"></p>
           <button class="btn primary block" type="submit">Create account</button>
         </form>
+
+        <!-- Forgot password -->
+        <form class="form" id="forgot-form" hidden>
+          <div class="form-head">
+            <h2>Reset your password</h2>
+            <p>Enter your email and we'll send you a reset link.</p>
+          </div>
+          <label>Email <input type="email" id="fp-email" autocomplete="email" required></label>
+          <p class="msg" id="fp-msg"></p>
+          <button class="btn primary block" type="submit">Send reset link</button>
+          <button type="button" class="btn ghost block" id="forgot-back">← Back to sign in</button>
+        </form>
       </div>
     </div>
   </section>
@@ -79,19 +108,16 @@
   <div class="app" id="view-app" hidden>
 
     <!-- SIDEBAR -->
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar">
       <div class="brand-mark small">
         <span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="logo-j" d="M12.5 5v9.5a4.5 4.5 0 0 1-9 0"/><path class="logo-spark" d="M18 2.5l1.1 2.4 2.4 1.1-2.4 1.1L18 9.5l-1.1-2.4-2.4-1.1 2.4-1.1z"/></svg></span> Jennifer
       </div>
-
       <nav class="nav" id="nav"></nav>
-
       <div class="user-card" id="user-card"></div>
     </aside>
 
     <!-- MAIN -->
     <main class="main">
-      <!-- Public profile header (lumalabas lang sa ?u=username) -->
       <section class="profile-head" id="profile-head" hidden></section>
 
       <header class="topbar">
@@ -104,6 +130,15 @@
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
             <input id="search" type="search" placeholder="Search files">
           </label>
+          <div class="segmented" id="view-toggle">
+            <button data-view="grid" aria-label="Grid view">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </button>
+            <button data-view="list" aria-label="List view">
+              <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
+            </button>
+          </div>
+          <button class="icon-btn theme-btn" data-theme-toggle aria-label="Toggle dark mode"></button>
           <button class="btn primary" id="upload-open" hidden>
             <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 20h16"/></svg>
             Upload
@@ -145,7 +180,7 @@
       <div class="modal-body" id="p-body"></div>
       <div class="modal-foot">
         <div class="owner-actions" id="p-owner" hidden>
-          <button class="btn ghost" id="p-visibility"></button>
+          <button class="btn ghost" id="p-edit">✏️ Edit</button>
           <button class="btn danger-ghost" id="p-delete">Delete</button>
         </div>
         <span class="spacer"></span>
@@ -155,40 +190,43 @@
     </div>
   </div>
 
-  <!-- Upload -->
+  <!-- Upload (maraming file) -->
   <div class="modal" id="upload" hidden>
-    <form class="modal-box" id="upload-form">
+    <form class="modal-box" id="upload-form" novalidate>
       <div class="modal-head">
         <div>
-          <h3>Upload file</h3>
-          <p>Images, PDFs, documents, or a link. Max 20 MB.</p>
+          <h3>Upload files</h3>
+          <p>Add up to 10 files at once. Max 20 MB each.</p>
         </div>
         <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
       </div>
-      <div class="form">
+
+      <div class="form scroll">
         <label class="drop" id="drop">
-          <input type="file" id="u-file" hidden>
+          <input type="file" id="u-files" multiple hidden>
           <span class="drop-icon">
             <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 20h16"/></svg>
           </span>
-          <b id="drop-text">Click to choose or drag a file here</b>
+          <b>Click to choose or drag files here</b>
           <small>PDF, JPG, PNG, DOCX, PPTX, XLSX</small>
         </label>
 
-        <div class="divider"><span>or add a link</span></div>
-        <label><input type="url" id="u-link" placeholder="https://github.com/your-project"></label>
-
-        <div class="row">
-          <label>Title <input id="u-title" maxlength="120" required placeholder="Python Basics Certificate"></label>
-          <label>Category
-            <input id="u-category" list="cat-list" maxlength="40" required placeholder="Certificates">
-            <datalist id="cat-list"></datalist>
-          </label>
+        <div class="link-add">
+          <input type="url" id="u-link" placeholder="Or paste a link, e.g. https://github.com/...">
+          <button type="button" class="btn ghost" id="u-link-add">Add link</button>
         </div>
 
-        <label>Note (optional)
-          <input id="u-note" maxlength="200" placeholder="Issued by Coursera, March 2026">
-        </label>
+        <ul class="queue" id="queue"></ul>
+
+        <div class="row">
+          <label>Category
+            <input id="u-category" list="cat-list" maxlength="40" placeholder="Certificates">
+            <datalist id="cat-list"></datalist>
+          </label>
+          <label>Note (optional)
+            <input id="u-note" maxlength="200" placeholder="Issued by Coursera">
+          </label>
+        </div>
 
         <div class="visibility">
           <label class="vis-option">
@@ -200,14 +238,96 @@
             <span><b>🌐 Public</b><small>Shown on your profile</small></span>
           </label>
         </div>
-
         <p class="msg" id="upload-msg"></p>
-        <button class="btn primary block" type="submit" id="upload-submit">Upload</button>
+      </div>
+
+      <div class="modal-foot">
+        <div class="overall" id="overall" hidden>
+          <span id="overall-text">Uploading…</span>
+          <div class="bar"><i id="overall-bar"></i></div>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn primary" type="submit" id="upload-submit" disabled>Upload</button>
       </div>
     </form>
   </div>
 
-  <!-- Toast notification -->
+  <!-- Edit file details -->
+  <div class="modal" id="edit" hidden>
+    <form class="modal-box" id="edit-form">
+      <div class="modal-head">
+        <div>
+          <h3>Edit details</h3>
+          <p>Change the title, category, note, or who can see it.</p>
+        </div>
+        <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="form">
+        <label>Title <input id="e-title" maxlength="120" required></label>
+        <div class="row">
+          <label>Category <input id="e-category" list="cat-list" maxlength="40" required></label>
+          <label>Note (optional) <input id="e-note" maxlength="200"></label>
+        </div>
+        <div class="visibility">
+          <label class="vis-option">
+            <input type="radio" name="evis" value="private">
+            <span><b>🔒 Private</b><small>Only you can see it</small></span>
+          </label>
+          <label class="vis-option">
+            <input type="radio" name="evis" value="public">
+            <span><b>🌐 Public</b><small>Shown on your profile</small></span>
+          </label>
+        </div>
+        <p class="msg" id="edit-msg"></p>
+        <button class="btn primary block" type="submit">Save changes</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Edit profile -->
+  <div class="modal" id="profile" hidden>
+    <form class="modal-box" id="profile-form">
+      <div class="modal-head">
+        <div>
+          <h3>Edit profile</h3>
+          <p>This is how others see you on your public profile.</p>
+        </div>
+        <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="form">
+        <div class="profile-edit-avatar">
+          <div id="pf-avatar"></div>
+          <button type="button" class="btn ghost" id="pf-photo">📷 Change photo</button>
+        </div>
+        <label>Display name <input id="pf-name" maxlength="40" required></label>
+        <label>Username <div class="input-prefix readonly"><span>@</span><input id="pf-username" disabled></div>
+          <small>Usernames can't be changed.</small>
+        </label>
+        <p class="msg" id="profile-msg"></p>
+        <button class="btn primary block" type="submit">Save profile</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Bagong password (galing sa reset email) -->
+  <div class="modal" id="recovery" hidden>
+    <form class="modal-box" id="recovery-form">
+      <div class="modal-head">
+        <div>
+          <h3>Set a new password</h3>
+          <p>Choose a new password for your account.</p>
+        </div>
+      </div>
+      <div class="form">
+        <label>New password <input type="password" id="rp-password" minlength="8" autocomplete="new-password" required></label>
+        <label>Confirm password <input type="password" id="rp-confirm" minlength="8" autocomplete="new-password" required></label>
+        <p class="msg" id="rp-msg"></p>
+        <button class="btn primary block" type="submit">Update password</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Notification -->
   <div class="toast" id="toast"></div>
 
   <!-- Nakatagong file picker para sa profile photo -->
